@@ -1,0 +1,130 @@
+# ----------------------------
+# Python bytecode / caches
+# ----------------------------
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# ----------------------------
+# Native / build outputs
+# ----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+MANIFEST
+.Python
+wheels/
+share/python-wheels/
+
+# ----------------------------
+# Test / coverage
+# ----------------------------
+.pytest_cache/
+.tox/
+.nox/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+nosetests.xml
+.hypothesis/
+.cache
+
+# ----------------------------
+# Jupyter / IPython
+# ----------------------------
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# ----------------------------
+# Type checkers / linters
+# ----------------------------
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ----------------------------
+# Virtual environments
+# ----------------------------
+.venv/
+**/.venv/
+venv/
+**/venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ----------------------------
+# Environment / secrets
+# ----------------------------
+.env
+.env.*
+.envrc
+.pypirc
+
+# ----------------------------
+# Editors / OS
+# ----------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.spyderproject
+.spyproject
+.ropeproject
+
+# ----------------------------
+# Logs / runtime files
+# ----------------------------
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+celerybeat-schedule
+celerybeat.pid
+
+# ----------------------------
+# Docs / sites
+# ----------------------------
+docs/_build/
+site/
+
+# ----------------------------
+# Project-specific: keep REQUIRED artifacts (new structure)
+# ----------------------------
+backend/artifacts/*
+!backend/artifacts/pipeline.joblib
+!backend/artifacts/xgboost_log_model.pkl
+!backend/artifacts/expected_columns.joblib
+
+# If you do NOT want to commit data files, uncomment the next line:
+# backend/data/
+
+# Ignore training-only or old model dumps if you use a models/ folder
+models/
+
+# ----------------------------
+# Tooling
+# ----------------------------
+.scrapy/
+.pybuilder/
+target/
+.pdm-python
+.pdm-build/
+.pixi/
+__pypackages__/
+abstra/
+.cursorignore
+.cursorindexingignore
+cython_debug/
+__marimo__/
+marimo/_static/
+marimo/_lsp/
+got this
