@@ -1,10 +1,7 @@
-# api/schemas.py
-# Request/response schemas.
-# Hard validation: build_year + numeric sanity limits.
-# Normalization/warnings happen in api/predict.py.
+# backend/app/schemas.py
 
 from typing import Optional, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ALLOWED_PROPERTY_TYPES = {
     "Apartment", "Residence", "Villa", "Ground", "Penthouse", "Duplex", "Mixed",
@@ -17,7 +14,6 @@ ALLOWED_STATES = {
     "Fully renovated", "Under construction", "To restore", "To demolish",
 }
 
-# Canonical labels used by your dataset (NL uppercase)
 ALLOWED_PROVINCES = {
     "ANTWERPEN",
     "OOST-VLAANDEREN",
@@ -32,7 +28,6 @@ ALLOWED_PROVINCES = {
     "BRUSSEL",
 }
 
-# Soft normalization helpers
 PROPERTY_TYPE_MAP = {
     "apt": "Apartment",
     "apartment": "Apartment",
@@ -57,7 +52,6 @@ STATE_MAP = {
     "construction": "Under construction",
 }
 
-# FR + NL province aliases -> canonical NL uppercase
 PROVINCE_ALIASES = {
     # NL
     "ANTWERPEN": "ANTWERPEN",
@@ -93,18 +87,21 @@ class PredictRequest(BaseModel):
     # Required + hard validation
     build_year: int = Field(..., ge=1800, le=2025, examples=[1996])
 
-    # Numeric sanity checks (hard errors)
-    living_area: Optional[float] = Field(None, gt=0, le=500, examples=[120])
-    number_rooms: Optional[int] = Field(None, ge=0, le=12, examples=[3])
-    facades: Optional[int] = Field(None, ge=1, le=6, examples=[2])
+    # Mandatory numerics
+    living_area: float = Field(..., gt=0, le=500, examples=[120])
+    number_rooms: int = Field(..., ge=0, le=12, examples=[3])
+    facades: int = Field(..., ge=1, le=6, examples=[2])
 
     # Optional categoricals (handled softly in predict.py)
     garden: Optional[str] = Field(None, examples=["yes"])
     terrace: Optional[str] = Field(None, examples=["no"])
     swimming_pool: Optional[str] = Field(None, examples=["unknown"])
 
+    # Location: at least one required
     postal_code: Optional[Union[str, int]] = Field(None, examples=["9000"])
     province: Optional[str] = Field(None, examples=["OOST-VLAANDEREN"])
+
+    # Optional categoricals
     property_type: Optional[str] = Field(None, examples=["Residence"])
     state: Optional[str] = Field(None, examples=["Excellent"])
 
@@ -117,17 +114,29 @@ class PredictRequest(BaseModel):
     )
     @classmethod
     def empty_to_none(cls, v):
-        # Convert empty strings to None so predict.py can warn + treat as missing
         if v is None:
             return None
         s = str(v).strip()
         return None if s == "" else s
 
+    @model_validator(mode="after")
+    def require_location(self):
+        # Must provide at least one: postal_code OR province
+        if self.postal_code is None and self.province is None:
+            raise ValueError("Either postal_code or province must be provided.")
+
+        # If postal_code provided, basic format check (4 digits). Deeper validation happens in predict.py.
+        if self.postal_code is not None:
+            digits = "".join(ch for ch in str(self.postal_code).strip() if ch.isdigit())
+            if len(digits) != 4:
+                raise ValueError("postal_code must be exactly 4 digits (e.g., 9000).")
+
+        return self
+
 
 class PredictResponse(BaseModel):
-    # One price field for UI, one warning line for UI
-    prediction_text: str                      # e.g. "€410,802.38"
-    warning: Optional[str] = None             # one line or null
+    prediction_text: str
+    warning: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

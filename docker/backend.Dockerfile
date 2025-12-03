@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # XGBoost needs OpenMP runtime on slim Debian images
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
@@ -7,15 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 WORKDIR /app
 
 # Install deps first for better Docker caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy your API code + runtime artifacts
-COPY api ./api
-COPY artifacts ./artifacts
-COPY data ./data
+# Copy your backend package + runtime artifacts/data
+COPY backend/app /app/app
+COPY backend/artifacts /app/artifacts
+COPY backend/data /app/data
 
 ENV PYTHONUNBUFFERED=1
 
 # Render provides PORT; default to 10000 when PORT is not set
-CMD ["sh", "-c", "uvicorn api.app:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "uvicorn app.app:app --host 0.0.0.0 --port ${PORT:-10000}"]

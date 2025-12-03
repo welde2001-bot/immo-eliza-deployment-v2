@@ -1,5 +1,4 @@
-# api/predict.py
-# Preprocess input + generate prediction_text (€, string) + one warning line.
+# backend/app/predict.py
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,7 +11,7 @@ import pandas as pd
 import joblib
 from sklearn.compose import TransformedTargetRegressor
 
-from api.schemas import (
+from .schemas import (
     PredictRequest,
     ALLOWED_PROPERTY_TYPES,
     ALLOWED_STATES,
@@ -22,9 +21,13 @@ from api.schemas import (
     PROVINCE_ALIASES,
 )
 
-MODEL_PATH_PRIMARY = Path("artifacts") / "pipeline.joblib"
-MODEL_PATH_FALLBACK = Path("artifacts") / "xgboost_log_model.pkl"
-POSTAL_REF_PATH = Path("data") / "postal_code_ref.csv"
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+ARTIFACTS_DIR = BACKEND_DIR / "artifacts"
+DATA_DIR = BACKEND_DIR / "data"
+
+MODEL_PATH_PRIMARY = ARTIFACTS_DIR / "pipeline.joblib"
+MODEL_PATH_FALLBACK = ARTIFACTS_DIR / "xgboost_log_model.pkl"
+POSTAL_REF_PATH = DATA_DIR / "postal_code_ref.csv"
 
 AMENITY_ALLOWED = {"yes", "no", "unknown"}
 
@@ -126,6 +129,8 @@ def load_artifacts() -> None:
 
     _pipeline = joblib.load(model_path)
     _expected_cols = _infer_expected_columns(_pipeline)
+
+    # Load postal lookup if available (only strictly needed when postal_code is provided)
     _postal_to_province = _load_postal_lookup(POSTAL_REF_PATH)
 
 
@@ -248,7 +253,7 @@ def preprocess(req: PredictRequest) -> Tuple[pd.DataFrame, Optional[str]]:
             warnings.append(f"{col} invalid; treated as missing.")
         data[col] = norm
 
-    # property_type/state: invalid -> warning + missing
+    # property_type/state: invalid -> warning + missing (optional)
     raw_pt = data.get("property_type")
     pt = _normalize_property_type(raw_pt)
     if raw_pt is not None and pt is None:
@@ -261,41 +266,43 @@ def preprocess(req: PredictRequest) -> Tuple[pd.DataFrame, Optional[str]]:
         warnings.append("state not known; treated as missing.")
     data["state"] = st
 
-    # province: normalize; unrecognized -> warning + missing
+    # Province normalization
     raw_prov = data.get("province")
     prov_norm = _normalize_province(raw_prov)
-    if raw_prov is not None and prov_norm is None:
-        warnings.append("province not recognized; treated as missing.")
 
-    # postal_code rules (missing => warning + missing)
+    # Postal logic: either postal_code OR province must be provided (schemas already enforces at least one)
     pc_raw = data.get("postal_code")
     pc = _parse_postal_code(pc_raw)
 
     if pc_raw is None:
-        warnings.append("postal_code missing; treated as missing.")
+        # No postal_code: province must be usable (hard error if not recognized)
+        if prov_norm is None:
+            raise ValueError("You must provide either a valid postal_code or a recognizable province.")
         data["postal_code"] = None
-
-    elif pc is None:
-        warnings.append("postal_code invalid format; treated as missing.")
-        data["postal_code"] = None
+        # Optional informational warning (not an error)
+        warnings.append("postal_code not provided; using province only.")
 
     else:
+        # Postal code provided: must be valid and exist in reference
+        if pc is None:
+            raise ValueError("postal_code must be exactly 4 digits (e.g., 9000).")
+
         if not _postal_to_province:
             raise RuntimeError("Postal reference not loaded; cannot validate postal_code.")
 
         if pc not in _postal_to_province:
-            raise ValueError(
-                f"postal_code {pc} not found in reference file. Leave it empty or use a valid reference postal code."
-            )
+            raise ValueError(f"postal_code {pc} not found in reference file.")
 
         prov_ref = _postal_to_province[pc]
 
+        # If user also provided province, it must match reference (hard rule)
         if prov_norm is not None and prov_norm != prov_ref:
             raise ValueError(f"postal_code {pc} belongs to province {prov_ref}, but you sent {prov_norm}.")
 
         prov_norm = prov_ref
         data["postal_code"] = pc
 
+    # Finalize province + region
     data["province"] = prov_norm
     data["region"] = REGION_MAP.get(prov_norm) if prov_norm else None
 
@@ -338,7 +345,6 @@ def predict_text(req: PredictRequest) -> Tuple[str, Optional[str]]:
     raw_pred = float(_pipeline.predict(X)[0])
 
     pred_price = raw_pred if _model_outputs_real_price(_pipeline) else float(np.expm1(raw_pred))
-
     pred_value = round(float(pred_price), 2)
     pred_text = f"€{pred_value:,.2f}"
 

@@ -1,15 +1,12 @@
-# api/app.py
-# Minimal FastAPI app:
-# - GET  /        -> "alive"
-# - HEAD /        -> 200 for health checks
-# - POST /predict -> prediction_text + warning (single line)
+# backend/app/app.py
 
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from api.schemas import PredictRequest, PredictResponse, ErrorResponse
-from api.predict import load_artifacts, predict_text
+from .schemas import PredictRequest, PredictResponse, ErrorResponse
+from .predict import load_artifacts, predict_text
 
 
 @asynccontextmanager
@@ -42,7 +39,6 @@ def predict_endpoint(req: PredictRequest):
         return PredictResponse(prediction_text=pred_text, warning=warning_line)
 
     except ValueError as e:
-        # Hard rule violations (postal reference mismatch, etc.)
         return JSONResponse(status_code=400, content=ErrorResponse(error=str(e)).model_dump())
 
     except Exception as e:
