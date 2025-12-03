@@ -90,7 +90,7 @@ class PredictRequest(BaseModel):
     # Mandatory numerics
     living_area: float = Field(..., gt=0, le=500, examples=[120])
     number_rooms: int = Field(..., ge=0, le=12, examples=[3])
-    facades: int = Field(..., ge=1, le=6, examples=[2])
+    facades: int = Field(..., ge=1, le=4, examples=[2])
 
     # Optional categoricals (handled softly in predict.py)
     garden: Optional[str] = Field(None, examples=["yes"])

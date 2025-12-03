@@ -79,7 +79,7 @@ number_rooms = st.number_input("Number of rooms (required)", min_value=0, value=
 facades = st.number_input("Facades (required)", min_value=1, value=2, step=1)
 
 st.divider()
-st.subheader("Location (required: either Postal code OR Province)")
+st.subheader("Location (required: Postal code/Province)")
 
 postal_code = st.text_input("Postal code (4 digits) (required OR choose province)", value="")
 province = st.selectbox("Province (required OR enter postal code)", options=PROVINCE_OPTIONS, index=0)
@@ -87,12 +87,12 @@ province = st.selectbox("Province (required OR enter postal code)", options=PROV
 st.divider()
 st.subheader("Optional inputs")
 
-property_type = st.selectbox("Property type (optional)", options=PROPERTY_TYPE_OPTIONS, index=0)
-state = st.selectbox("State (optional)", options=STATE_OPTIONS, index=0)
+property_type = st.selectbox("Property type", options=PROPERTY_TYPE_OPTIONS, index=0)
+state = st.selectbox("State ", options=STATE_OPTIONS, index=0)
 
-garden = st.selectbox("Garden (optional)", ["", "yes", "no", "unknown"])
-terrace = st.selectbox("Terrace (optional)", ["", "yes", "no", "unknown"])
-swimming_pool = st.selectbox("Swimming pool (optional)", ["", "yes", "no", "unknown"])
+garden = st.selectbox("Garden ", ["", "yes", "no", "unknown"])
+terrace = st.selectbox("Terrace ", ["", "yes", "no", "unknown"])
+swimming_pool = st.selectbox("Swimming pool", ["", "yes", "no", "unknown"])
 
 # Validation rules:
 # - living_area, facades, number_rooms are required by construction (min_value prevents empty/0 for some)
