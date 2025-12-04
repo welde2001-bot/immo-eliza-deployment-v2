@@ -66,6 +66,7 @@ st.caption("Fill the required fields and get a predicted price. The model runs o
 with st.sidebar:
     st.subheader("Backend settings")
     api_url = st.text_input("API base URL", value=DEFAULT_API_URL)
+    st.write("Using API:", api_url)
     st.write("Tip: for local testing use http://localhost:8000")
     st.divider()
     st.write("Routes:")
