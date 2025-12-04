@@ -5,7 +5,8 @@ import os
 import requests
 import streamlit as st
 
-DEFAULT_API_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+DEFAULT_API_URL = st.secrets.get("BACKEND_URL", os.getenv("BACKEND_URL", "http://localhost:8000"))
+
 
 # Keep these lists in sync with backend/app/schemas.py (allowed values).
 PROPERTY_TYPE_OPTIONS = [
@@ -96,7 +97,7 @@ swimming_pool = st.selectbox("Swimming pool", ["", "yes", "no", "unknown"])
 
 # Validation rules:
 # - living_area, facades, number_rooms are required by construction (min_value prevents empty/0 for some)
-# - Must provide either postal_code (valid 4 digits) OR province (non-empty)
+# - Must provide either postal_code (valid 4 digits) OR province
 postal_ok = is_valid_postal_code(postal_code)
 province_ok = bool(province)
 

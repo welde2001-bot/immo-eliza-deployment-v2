@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../workspace ML"
+		},
+		{
+			"path": "../backend"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
