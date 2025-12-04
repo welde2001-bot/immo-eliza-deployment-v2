@@ -1,19 +1,129 @@
 # streamlit_app/app.py
 # Streamlit UI for the Immo Eliza Price Predictor (FastAPI backend)
 #
-# - Default backend URL is the deployed Render service
-# - Backend URL is editable (for manual overrides), but no local/production toggling
-# - Handles multiple possible prediction field names from the backend
-# - Ensures the displayed prediction includes a euro symbol
+# UI improvements requested:
+# - Use fixed backend URL (hidden from the page)
+# - Add a small welcome note
+# - Show a subtle bottom-left indicator: "API: -> alive" when backend is reachable
+# - Place the TE KOOP / À VENDRE banner image above the form
+# - Keep prediction robust + always show € in the displayed output
+# - Keep the page clean and “demo-ready”
+
+from __future__ import annotations
 
 import requests
 import streamlit as st
 from typing import Any, Dict, Optional
 
-# Fixed default backend URL (your deployed FastAPI on Render)
+# Fixed backend URL (hidden; not displayed, not editable)
 BACKEND_URL = "https://immo-eliza-deployment-vnhp.onrender.com"
 
-# Keep these lists in sync with backend/app/schemas.py (allowed values).
+# Image file for the banner (put it in your repo, e.g. streamlit_app/assets/tekoop_avendre.png)
+# Update this path to match where you store the image.
+BANNER_IMAGE_PATH = "streamlit_app/assets/tekoop_avendre.png"
+
+
+# ---------------- Helpers ----------------
+def normalize_base_url(url: str) -> str:
+    return (url or "").strip().rstrip("/")
+
+
+def check_api_alive(api_base_url: str) -> bool:
+    """
+    Lightweight health check.
+    Your backend supports GET / -> alive (per your earlier UI notes).
+    If your backend uses a different health path, change "/" accordingly.
+    """
+    base = normalize_base_url(api_base_url)
+    try:
+        r = requests.get(base + "/", timeout=6)
+        return r.status_code < 400
+    except Exception:
+        return False
+
+
+def call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    base = normalize_base_url(api_base_url)
+    url = base + "/predict"
+    resp = requests.post(url, json=payload, timeout=30)
+
+    try:
+        data = resp.json()
+    except Exception:
+        snippet = (resp.text or "")[:300]
+        raise RuntimeError(f"Non-JSON response (HTTP {resp.status_code}): {snippet}")
+
+    if resp.status_code >= 400:
+        msg = data.get("error") or data.get("detail") or str(data)
+        raise ValueError(f"API error (HTTP {resp.status_code}): {msg}")
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Unexpected JSON shape: expected object, got {type(data).__name__}")
+
+    return data
+
+
+def is_valid_postal_code(s: str) -> bool:
+    s = (s or "").strip()
+    return len(s) == 4 and s.isdigit()
+
+
+def extract_prediction(result: Dict[str, Any]) -> Optional[str]:
+    pred = result.get("prediction_text") or result.get("prediction") or result.get("pred_text")
+    return None if pred is None else str(pred)
+
+
+def format_price_eur(pred: Optional[str]) -> str:
+    if pred is None:
+        return "N/A"
+    s = str(pred).strip()
+    if not s:
+        return "N/A"
+    return s if s.startswith("€") else f"€{s}"
+
+
+def render_api_badge(is_alive: bool) -> None:
+    """
+    Bottom-left API connection indicator.
+    Uses fixed-position HTML anchored to the bottom-left of the page.
+    """
+    if is_alive:
+        label = "API : → alive"
+        bg = "#0E5A2A"   # dark green
+        fg = "#FFFFFF"
+        border = "#0B4A22"
+    else:
+        label = "API : → offline"
+        bg = "#8A1F1F"   # dark red
+        fg = "#FFFFFF"
+        border = "#6F1919"
+
+    st.markdown(
+        f"""
+        <style>
+          .api-badge {{
+            position: fixed;
+            left: 18px;
+            bottom: 18px;
+            z-index: 1000;
+            padding: 10px 12px;
+            border-radius: 999px;
+            background: {bg};
+            color: {fg};
+            border: 1px solid {border};
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+          }}
+        </style>
+        <div class="api-badge">{label}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------- Static choices (keep in sync with backend) ----------------
 PROPERTY_TYPE_OPTIONS = [
     "",  # allow "missing"
     "Apartment", "Residence", "Villa", "Ground", "Penthouse", "Duplex", "Mixed",
@@ -45,177 +155,130 @@ PROVINCE_OPTIONS = [
 AMENITY_OPTIONS = ["", "yes", "no", "unknown"]
 
 
-# --------- Helpers ---------
-def normalize_base_url(url: str) -> str:
-    """Trim whitespace and trailing slashes for consistent URL building."""
-    return (url or "").strip().rstrip("/")
+# ---------------- Page layout ----------------
+st.set_page_config(page_title="Immo Eliza Price Predictor", page_icon="🏠", layout="wide")
 
-
-def call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Call the FastAPI /predict endpoint and return the parsed JSON."""
-    base = normalize_base_url(api_base_url)
-    url = base + "/predict"
-
-    resp = requests.post(url, json=payload, timeout=30)
-
-    try:
-        data = resp.json()
-    except Exception:
-        snippet = (resp.text or "")[:300]
-        raise RuntimeError(f"Non-JSON response (HTTP {resp.status_code}): {snippet}")
-
-    if resp.status_code >= 400:
-        msg = data.get("error") or data.get("detail") or str(data)
-        raise ValueError(f"API error (HTTP {resp.status_code}): {msg}")
-
-    if not isinstance(data, dict):
-        raise RuntimeError(f"Unexpected JSON shape: expected object, got {type(data).__name__}")
-
-    return data
-
-
-def is_valid_postal_code(s: str) -> bool:
-    s = (s or "").strip()
-    return len(s) == 4 and s.isdigit()
-
-
-def extract_prediction(result: Dict[str, Any]) -> Optional[str]:
+# Subtle page styling (keeps Streamlit clean but more “product-like”)
+st.markdown(
     """
-    Try common field names so the UI is robust to small backend differences.
-    Preferred is 'prediction_text'.
-    """
-    pred = (
-        result.get("prediction_text")
-        or result.get("prediction")
-        or result.get("pred_text")
-    )
-    return None if pred is None else str(pred)
+    <style>
+      /* Make the content area a little tighter and nicer */
+      .block-container { padding-top: 1.2rem; padding-bottom: 2.5rem; max-width: 1100px; }
+      h1, h2, h3 { letter-spacing: -0.2px; }
+      /* Reduce space under captions */
+      [data-testid="stCaptionContainer"] { margin-top: -0.25rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-
-def format_price_eur(pred: Optional[str]) -> str:
-    """
-    Ensure the displayed prediction has a euro symbol.
-    If pred already starts with €, keep it. Otherwise prepend €.
-    """
-    if pred is None:
-        return "N/A"
-    s = str(pred).strip()
-    if not s:
-        return "N/A"
-    return s if s.startswith("€") else f"€{s}"
-
-
-# --------- Page layout ---------
-st.set_page_config(page_title="Immo Eliza Price Predictor", page_icon="🏠", layout="centered")
+# Header + welcome note
 st.title("Immo Eliza Price Predictor")
-st.caption("Fill the required fields and get a predicted price. The model runs on a FastAPI backend.")
+st.caption("Welcome to Immo-Eliza — a Belgian real estate price predictor for quick, demo-friendly estimates.")
 
-# Persist backend URL across reruns but keep your fixed default
-if "api_url" not in st.session_state:
-    st.session_state["api_url"] = BACKEND_URL
-
-with st.sidebar:
-    st.subheader("Backend")
-    st.session_state["api_url"] = st.text_input(
-        "API base URL",
-        value=st.session_state["api_url"],
-        help="Default is the deployed backend URL. You can override it if needed.",
+# Banner image
+# (If the image file is missing, we keep the app functional and show a placeholder note.)
+try:
+    st.image(BANNER_IMAGE_PATH, use_container_width=True)
+except Exception:
+    st.info(
+        "Banner image not found. Add your TE KOOP / À VENDRE image at "
+        f"`{BANNER_IMAGE_PATH}` (or update `BANNER_IMAGE_PATH`)."
     )
-    api_url = st.session_state["api_url"]
 
-    debug = st.toggle("Debug mode", value=False)
+# API indicator (computed once per run; lightweight)
+api_alive = check_api_alive(BACKEND_URL)
+render_api_badge(api_alive)
 
-    st.divider()
-    st.write("Expected routes on the backend:")
-    st.code("GET  /        -> alive\nPOST /predict -> prediction", language="text")
+# Main content layout
+left, right = st.columns([1.15, 0.85], vertical_alignment="top")
 
-st.subheader("Required inputs")
+with left:
+    st.subheader("Property details")
 
-# Required numeric fields
-build_year = st.number_input("Build year (required)", min_value=1800, max_value=2025, value=1996, step=1)
-living_area = st.number_input("Living area (m²) (required)", min_value=0, value=120, step=5)
-number_rooms = st.number_input("Number of rooms (required)", min_value=0, value=3, step=1)
-facades = st.number_input("Facades (required)", min_value=1, value=2, step=1)
+    with st.container(border=True):
+        st.markdown("**Required inputs**")
+        build_year = st.number_input("Build year", min_value=1800, max_value=2025, value=1996, step=1)
+        living_area = st.number_input("Living area (m²)", min_value=0, value=120, step=5)
+        number_rooms = st.number_input("Number of rooms", min_value=0, value=3, step=1)
+        facades = st.number_input("Facades", min_value=1, value=2, step=1)
 
-st.divider()
-st.subheader("Location (required: Postal code/Province)")
+    st.markdown("")
 
-postal_code = st.text_input("Postal code (4 digits) (required OR choose province)", value="")
-province = st.selectbox("Province (required OR enter postal code)", options=PROVINCE_OPTIONS, index=0)
+    with st.container(border=True):
+        st.markdown("**Location (required: Postal code or Province)**")
+        postal_code = st.text_input("Postal code (4 digits)", value="")
+        province = st.selectbox("Province", options=PROVINCE_OPTIONS, index=0)
 
-st.divider()
-st.subheader("Optional inputs")
+    st.markdown("")
 
-property_type = st.selectbox("Property type", options=PROPERTY_TYPE_OPTIONS, index=0)
-state = st.selectbox("State", options=STATE_OPTIONS, index=0)
+    with st.container(border=True):
+        st.markdown("**Optional characteristics**")
+        property_type = st.selectbox("Property type", options=PROPERTY_TYPE_OPTIONS, index=0)
+        state = st.selectbox("State", options=STATE_OPTIONS, index=0)
 
-garden = st.selectbox("Garden", AMENITY_OPTIONS)
-terrace = st.selectbox("Terrace", AMENITY_OPTIONS)
-swimming_pool = st.selectbox("Swimming pool", AMENITY_OPTIONS)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            garden = st.selectbox("Garden", AMENITY_OPTIONS)
+        with c2:
+            terrace = st.selectbox("Terrace", AMENITY_OPTIONS)
+        with c3:
+            swimming_pool = st.selectbox("Swimming pool", AMENITY_OPTIONS)
 
-# --------- Validation ---------
-postal_str = (postal_code or "").strip()
-postal_provided = bool(postal_str)
-postal_ok = is_valid_postal_code(postal_str)
-postal_invalid = postal_provided and (not postal_ok)
+with right:
+    st.subheader("Prediction")
 
-province_ok = bool(province)
-location_ok = postal_ok or province_ok
+    # Validation
+    postal_str = (postal_code or "").strip()
+    postal_provided = bool(postal_str)
+    postal_ok = is_valid_postal_code(postal_str)
+    postal_invalid = postal_provided and (not postal_ok)
 
-disable_predict = (not location_ok) or postal_invalid
+    province_ok = bool(province)
+    location_ok = postal_ok or province_ok
 
-if not location_ok:
-    st.error("Location is required: enter a valid 4-digit postal code OR select a province.")
-elif postal_invalid:
-    st.error("Postal code must be exactly 4 digits (e.g., 9000).")
+    disable_predict = (not location_ok) or postal_invalid
 
-# --------- Payload construction ---------
-payload: Dict[str, Any] = {
-    "build_year": int(build_year),
-    "living_area": float(living_area),
-    "number_rooms": int(number_rooms),
-    "facades": int(facades),
-    "postal_code": postal_str or None,
-    "province": province or None,
-    "property_type": property_type or None,
-    "state": state or None,
-    "garden": garden or None,
-    "terrace": terrace or None,
-    "swimming_pool": swimming_pool or None,
-}
+    if not location_ok:
+        st.warning("Enter a valid 4-digit postal code or select a province.")
+    elif postal_invalid:
+        st.warning("Postal code must be exactly 4 digits (e.g., 9000).")
 
-st.divider()
+    payload: Dict[str, Any] = {
+        "build_year": int(build_year),
+        "living_area": float(living_area),
+        "number_rooms": int(number_rooms),
+        "facades": int(facades),
+        "postal_code": postal_str or None,
+        "province": province or None,
+        "property_type": property_type or None,
+        "state": state or None,
+        "garden": garden or None,
+        "terrace": terrace or None,
+        "swimming_pool": swimming_pool or None,
+    }
 
-col1, col2 = st.columns([1, 2])
-with col1:
-    predict_clicked = st.button("Predict price", type="primary", disabled=disable_predict)
-with col2:
-    if debug:
-        st.write("Payload sent to backend:")
-        st.code(payload, language="json")
+    with st.container(border=True):
+        st.markdown("Click the button to request a price estimate from the model.")
 
-# --------- Prediction ---------
-if predict_clicked:
-    try:
-        with st.spinner("Calling the model..."):
-            result = call_predict(api_url, payload)
+        predict_clicked = st.button("Predict price", type="primary", disabled=disable_predict, use_container_width=True)
 
-        pred_raw = extract_prediction(result)
-        price_display = format_price_eur(pred_raw)
-        warning = result.get("warning")
+        st.divider()
 
-        st.success("Prediction complete")
-        st.metric("Predicted price", price_display)
+        if predict_clicked:
+            try:
+                with st.spinner("Calling the model..."):
+                    result = call_predict(BACKEND_URL, payload)
 
-        if warning:
-            st.warning(str(warning))
+                pred_raw = extract_prediction(result)
+                price_display = format_price_eur(pred_raw)
+                warning = result.get("warning")
 
-        if debug:
-            st.subheader("Raw backend response")
-            st.json(result)
+                st.success("Prediction complete")
+                st.metric("Predicted price", price_display)
 
-    except Exception as e:
-        if debug:
-            st.exception(e)
-        else:
-            st.error(str(e))
+                if warning:
+                    st.info(str(warning))
+
+            except Exception as e:
+                st.error(str(e))
