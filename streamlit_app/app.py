@@ -1,84 +1,17 @@
 # streamlit_app/app.py
-# UI that calls the FastAPI backend (/predict)
-# Improvements:
-# - Backend URL is editable again (for you + testers)
-# - Default comes from st.secrets["BACKEND_URL"] or env BACKEND_URL, else localhost
-# - Quick buttons to switch between deployed and localhost
-# - "Test backend" button that checks connectivity
-# - More robust prediction key handling to avoid N/A
-# - Optional debug output (payload + raw response)
-
-import os
-from typing import Any, Dict, Optional
+# Streamlit UI for the Immo Eliza Price Predictor (FastAPI backend)
+#
+# - Default backend URL is the deployed Render service
+# - Backend URL is editable (for manual overrides), but no local/production toggling
+# - Handles multiple possible prediction field names from the backend
+# - Ensures the displayed prediction includes a euro symbol
 
 import requests
 import streamlit as st
+from typing import Any, Dict, Optional
 
-
-DEFAULT_LOCAL_API = "http://localhost:8000"
-
-
-def get_default_backend_url() -> str:
-    """Prefer Streamlit secrets, then env var, then localhost."""
-    return str(
-        st.secrets.get(
-            "BACKEND_URL",
-            os.getenv("BACKEND_URL", DEFAULT_LOCAL_API),
-        )
-    ).strip()
-
-
-def normalize_base_url(url: str) -> str:
-    url = (url or "").strip()
-    return url.rstrip("/")
-
-
-def call_api(api_url: str, payload: dict) -> Dict[str, Any]:
-    base = normalize_base_url(api_url)
-    url = base + "/predict"
-    r = requests.post(url, json=payload, timeout=30)
-
-    try:
-        data = r.json()
-    except Exception:
-        raise RuntimeError(f"Non-JSON response (status {r.status_code}): {r.text[:300]}")
-
-    if r.status_code >= 400:
-        msg = data.get("error") or data.get("detail") or str(data)
-        raise ValueError(f"API error ({r.status_code}): {msg}")
-
-    if not isinstance(data, dict):
-        raise RuntimeError(f"Unexpected JSON type: {type(data).__name__}")
-
-    return data
-
-
-def test_backend(api_url: str) -> Optional[str]:
-    """
-    Light connectivity test.
-    Prefers GET / (as your sidebar indicates). If it fails, returns error string.
-    """
-    base = normalize_base_url(api_url)
-    try:
-        r = requests.get(base + "/", timeout=10)
-        # even if not JSON, a 200 is good enough to show server is reachable
-        if r.status_code >= 400:
-            return f"Backend reachable but returned HTTP {r.status_code} on GET /"
-        return None
-    except Exception as e:
-        return str(e)
-
-
-def is_valid_postal_code(s: str) -> bool:
-    s = (s or "").strip()
-    return len(s) == 4 and s.isdigit()
-
-
-def extract_pred_text(result: Dict[str, Any]) -> Optional[str]:
-    """Accept multiple possible key names so UI doesn't show N/A due to mismatch."""
-    pred = result.get("prediction_text") or result.get("prediction") or result.get("pred_text")
-    return None if pred is None else str(pred)
-
+# Fixed default backend URL (your deployed FastAPI on Render)
+BACKEND_URL = "https://immo-eliza-deployment-vnhp.onrender.com"
 
 # Keep these lists in sync with backend/app/schemas.py (allowed values).
 PROPERTY_TYPE_OPTIONS = [
@@ -112,55 +45,93 @@ PROVINCE_OPTIONS = [
 AMENITY_OPTIONS = ["", "yes", "no", "unknown"]
 
 
-# ---------- UI ----------
+# --------- Helpers ---------
+def normalize_base_url(url: str) -> str:
+    """Trim whitespace and trailing slashes for consistent URL building."""
+    return (url or "").strip().rstrip("/")
+
+
+def call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Call the FastAPI /predict endpoint and return the parsed JSON."""
+    base = normalize_base_url(api_base_url)
+    url = base + "/predict"
+
+    resp = requests.post(url, json=payload, timeout=30)
+
+    try:
+        data = resp.json()
+    except Exception:
+        snippet = (resp.text or "")[:300]
+        raise RuntimeError(f"Non-JSON response (HTTP {resp.status_code}): {snippet}")
+
+    if resp.status_code >= 400:
+        msg = data.get("error") or data.get("detail") or str(data)
+        raise ValueError(f"API error (HTTP {resp.status_code}): {msg}")
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Unexpected JSON shape: expected object, got {type(data).__name__}")
+
+    return data
+
+
+def is_valid_postal_code(s: str) -> bool:
+    s = (s or "").strip()
+    return len(s) == 4 and s.isdigit()
+
+
+def extract_prediction(result: Dict[str, Any]) -> Optional[str]:
+    """
+    Try common field names so the UI is robust to small backend differences.
+    Preferred is 'prediction_text'.
+    """
+    pred = (
+        result.get("prediction_text")
+        or result.get("prediction")
+        or result.get("pred_text")
+    )
+    return None if pred is None else str(pred)
+
+
+def format_price_eur(pred: Optional[str]) -> str:
+    """
+    Ensure the displayed prediction has a euro symbol.
+    If pred already starts with €, keep it. Otherwise prepend €.
+    """
+    if pred is None:
+        return "N/A"
+    s = str(pred).strip()
+    if not s:
+        return "N/A"
+    return s if s.startswith("€") else f"€{s}"
+
+
+# --------- Page layout ---------
 st.set_page_config(page_title="Immo Eliza Price Predictor", page_icon="🏠", layout="centered")
 st.title("Immo Eliza Price Predictor")
 st.caption("Fill the required fields and get a predicted price. The model runs on a FastAPI backend.")
 
-default_backend = get_default_backend_url()
-
-# persist editable backend URL across reruns
+# Persist backend URL across reruns but keep your fixed default
 if "api_url" not in st.session_state:
-    st.session_state["api_url"] = default_backend
+    st.session_state["api_url"] = BACKEND_URL
 
 with st.sidebar:
-    st.subheader("Backend settings")
-
-    # Editable input (your complaint fixed)
+    st.subheader("Backend")
     st.session_state["api_url"] = st.text_input(
         "API base URL",
         value=st.session_state["api_url"],
-        help="Example: https://your-backend.onrender.com or http://localhost:8000",
+        help="Default is the deployed backend URL. You can override it if needed.",
     )
     api_url = st.session_state["api_url"]
-
-    colA, colB = st.columns(2)
-    with colA:
-        if st.button("Use deployed default"):
-            st.session_state["api_url"] = default_backend
-            st.rerun()
-    with colB:
-        if st.button("Use localhost"):
-            st.session_state["api_url"] = DEFAULT_LOCAL_API
-            st.rerun()
-
-    if st.button("Test backend"):
-        err = test_backend(api_url)
-        if err is None:
-            st.success("Backend reachable (GET / OK).")
-        else:
-            st.error(f"Backend test failed: {err}")
 
     debug = st.toggle("Debug mode", value=False)
 
     st.divider()
-    st.write("Tip: local testing uses http://localhost:8000")
-    st.write("Routes:")
-    st.code("GET  /  -> alive\nPOST /predict -> prediction", language="text")
+    st.write("Expected routes on the backend:")
+    st.code("GET  /        -> alive\nPOST /predict -> prediction", language="text")
 
 st.subheader("Required inputs")
 
-# Required
+# Required numeric fields
 build_year = st.number_input("Build year (required)", min_value=1800, max_value=2025, value=1996, step=1)
 living_area = st.number_input("Living area (m²) (required)", min_value=0, value=120, step=5)
 number_rooms = st.number_input("Number of rooms (required)", min_value=0, value=3, step=1)
@@ -182,7 +153,7 @@ garden = st.selectbox("Garden", AMENITY_OPTIONS)
 terrace = st.selectbox("Terrace", AMENITY_OPTIONS)
 swimming_pool = st.selectbox("Swimming pool", AMENITY_OPTIONS)
 
-# ---------- Validation ----------
+# --------- Validation ---------
 postal_str = (postal_code or "").strip()
 postal_provided = bool(postal_str)
 postal_ok = is_valid_postal_code(postal_str)
@@ -198,7 +169,7 @@ if not location_ok:
 elif postal_invalid:
     st.error("Postal code must be exactly 4 digits (e.g., 9000).")
 
-# Convert UI values to payload (send None for empties)
+# --------- Payload construction ---------
 payload: Dict[str, Any] = {
     "build_year": int(build_year),
     "living_area": float(living_area),
@@ -220,34 +191,28 @@ with col1:
     predict_clicked = st.button("Predict price", type="primary", disabled=disable_predict)
 with col2:
     if debug:
+        st.write("Payload sent to backend:")
         st.code(payload, language="json")
 
-# ---------- Predict ----------
+# --------- Prediction ---------
 if predict_clicked:
     try:
         with st.spinner("Calling the model..."):
-            result = call_api(api_url, payload)
+            result = call_predict(api_url, payload)
 
-        pred_text = extract_pred_text(result)
+        pred_raw = extract_prediction(result)
+        price_display = format_price_eur(pred_raw)
         warning = result.get("warning")
 
-        if debug:
-            st.subheader("Debug output")
-            st.write("API base URL:", normalize_base_url(api_url))
-            st.write("Raw response:")
-            st.json(result)
-
         st.success("Prediction complete")
-        st.metric("Predicted price", pred_text or "N/A")
+        st.metric("Predicted price", price_display)
 
         if warning:
             st.warning(str(warning))
 
-        if pred_text is None:
-            st.info(
-                "Backend response did not include 'prediction_text'. "
-                "Enable Debug mode to view the raw response and confirm the key name."
-            )
+        if debug:
+            st.subheader("Raw backend response")
+            st.json(result)
 
     except Exception as e:
         if debug:
