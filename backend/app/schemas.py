@@ -1,8 +1,21 @@
 # backend/app/schemas.py
 
+"""
+Pydantic schemas and shared constants for the prediction API.
+
+Design goals:
+- Enforce strict request shape (no unexpected fields).
+- Apply lightweight, "hard" validation for core numeric ranges and minimal location rules.
+- Leave deeper domain validation (e.g., postal_code existence, province matching) to predict.py,
+  where reference data is available and better error messages can be produced.
+"""
+
 from typing import Optional, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# -------------------------
+# Allowed canonical values (used for normalization and optional validation)
+# -------------------------
 ALLOWED_PROPERTY_TYPES = {
     "Apartment", "Residence", "Villa", "Ground", "Penthouse", "Duplex", "Mixed",
     "Studio", "Chalet", "Bungalow", "Cottage", "Master", "Loft", "Land", "Triplex",
@@ -28,6 +41,10 @@ ALLOWED_PROVINCES = {
     "BRUSSEL",
 }
 
+# -------------------------
+# Normalization maps (user-friendly input -> canonical backend value)
+# -------------------------
+# Property type aliases to canonical categories.
 PROPERTY_TYPE_MAP = {
     "apt": "Apartment",
     "apartment": "Apartment",
@@ -37,6 +54,7 @@ PROPERTY_TYPE_MAP = {
     "house": "Residence",
 }
 
+# Condition/state aliases to canonical categories.
 STATE_MAP = {
     "new": "New",
     "normal": "Normal",
@@ -47,11 +65,14 @@ STATE_MAP = {
     "under construction": "Under construction",
     "to restore": "To restore",
     "to demolish": "To demolish",
+    # Common synonyms
     "needs renovation": "To be renovated",
     "renovated": "Fully renovated",
     "construction": "Under construction",
 }
 
+# Province aliases across NL/FR spellings and common variants.
+# Keys are normalized upstream (see predict.py _norm_key).
 PROVINCE_ALIASES = {
     # NL
     "ANTWERPEN": "ANTWERPEN",
@@ -82,17 +103,29 @@ PROVINCE_ALIASES = {
     "REGIONBRUXELLESCAPITALE": "BRUSSEL",
 }
 
-
+# -------------------------
+# Request/response models
+# -------------------------
 class PredictRequest(BaseModel):
-    # Required + hard validation
+    """
+    Request payload for /predict.
+
+    Notes:
+    - Core numeric fields are validated here with strict ranges.
+    - Categorical fields are optional and are normalized/validated more deeply in predict.py.
+    - Location: at least one of postal_code or province must be provided.
+      A basic 4-digit postal_code format check is handled here; existence checks happen in predict.py.
+    """
+
+    # Required year with bounded range
     build_year: int = Field(..., ge=1800, le=2025, examples=[1996])
 
-    # Mandatory numerics
+    # Mandatory numerics used by the model
     living_area: float = Field(..., gt=0, le=500, examples=[120])
     number_rooms: int = Field(..., ge=0, le=12, examples=[3])
     facades: int = Field(..., ge=1, le=4, examples=[2])
 
-    # Optional categoricals (handled softly in predict.py)
+    # Optional features (soft-handled by predict.py)
     garden: Optional[str] = Field(None, examples=["yes"])
     terrace: Optional[str] = Field(None, examples=["no"])
     swimming_pool: Optional[str] = Field(None, examples=["unknown"])
@@ -105,6 +138,7 @@ class PredictRequest(BaseModel):
     property_type: Optional[str] = Field(None, examples=["Residence"])
     state: Optional[str] = Field(None, examples=["Excellent"])
 
+    # Reject unknown fields to keep the API strict and predictable.
     model_config = {"extra": "forbid"}
 
     @field_validator(
@@ -114,6 +148,10 @@ class PredictRequest(BaseModel):
     )
     @classmethod
     def empty_to_none(cls, v):
+        """
+        Treat empty strings as missing values.
+        This enables UIs to send "" for unselected fields without causing validation noise.
+        """
         if v is None:
             return None
         s = str(v).strip()
@@ -121,11 +159,15 @@ class PredictRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_location(self):
-        # Must provide at least one: postal_code OR province
+        """
+        Enforce minimal location policy:
+        - at least one of postal_code or province must be provided
+        - if postal_code is provided, it must contain exactly 4 digits
+        Deeper domain checks (e.g., reference lookup and province matching) occur in predict.py.
+        """
         if self.postal_code is None and self.province is None:
             raise ValueError("Either postal_code or province must be provided.")
 
-        # If postal_code provided, basic format check (4 digits). Deeper validation happens in predict.py.
         if self.postal_code is not None:
             digits = "".join(ch for ch in str(self.postal_code).strip() if ch.isdigit())
             if len(digits) != 4:
@@ -135,9 +177,21 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
+    """
+    Successful prediction response.
+
+    prediction_text:
+      - UI-ready formatted string in EUR (e.g., "€123,456.78")
+    warning:
+      - optional one-line note when inputs were normalized or partially ignored
+    """
     prediction_text: str
     warning: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
+    """
+    Standard error envelope for business/domain errors (HTTP 400/500).
+    The UI displays the 'error' string verbatim to keep backend messages intact.
+    """
     error: str
