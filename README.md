@@ -1,3 +1,19 @@
+<p align="left">
+
+  <a href="https://www.python.org/" target="_blank" rel="noopener 
+  noreferrer">
+    <img src="streamlit_app/assets/python.png" width="32%" 
+    alt="Python" />
+  </a>
+  <a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener noreferrer">
+    <img src="streamlit_app/assets/fastapi.png" width="32%" alt="FastAPI" />
+  </a>
+  <a href="https://streamlit.io/" target="_blank" rel="noopener noreferrer">
+    <img src="streamlit_app/assets/streamlit.png" width="32%" height=30 alt="Streamlit" />
+  </a>
+</p>
+
+
 # Real Estate Price Prediction (Belgium) — Immo Eliza
 
 A fast, reproducible ML inference service to estimate Belgian property prices using a trained model and reference data (postal code ↔ province). This repository contains:
@@ -54,8 +70,10 @@ immo-eliza-deployment-v2/
 │  ├─ requirements.txt
 │  └─ assets/
 │     └─ immo-eliza.png      # sidebar image shown in the UI
-│     └─ ui.png             # # screenshoot of streamlit UI
-│
+│     └─ ui.png             #  screenshoot of streamlit UI
+│     └─ fastapi.png
+│     └─ streamlit.png
+│     └─ python.png
 ├─ .gitignore
 └─ README.md
 ```
@@ -75,12 +93,14 @@ This repository uses **separate virtual environments** per component:
 - **Streamlit UI:** Python **3.13**  
   Venv path: `streamlit_app\.venv\`
 
-> Note: Python 3.14 is still new for some ML dependencies. If you hit install issues on the backend, consider switching the backend to Python 3.13 for broader wheel support.
+> Note: > Python 3.14 may not have prebuilt wheels for some ML dependencies yet. If installation fails, use Python 3.13 for the backend for better compatibility.
 
 
 <a id="installation"></a>
 
 ## 🛠️ Installation
+
+Install the required dependencies from `requirements.txt`:
 
 ### Backend (Python 3.14)
 
@@ -111,10 +131,13 @@ pip install -r requirements.txt
 
 Open a terminal:
 
+Open a terminal:
+
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
 uvicorn app.app:app --reload --host 0.0.0.0 --port 8000
+
 ```
 
 ### 2) Run the Streamlit UI
@@ -125,25 +148,6 @@ Open a second terminal:
 cd streamlit_app
 .\.venv\Scripts\Activate.ps1
 streamlit run app.py --server.port 8501
-```
-
-**Backend**
-
-```powershell
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2\backend
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -r requirements.txt
-``` 
-
-**Streamlit**
-
-```powershell
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -r requirements.txt
 ```
 
 <a id="streamlit-ui"></a>
@@ -199,6 +203,7 @@ The pipeline produces a numeric prediction which is formatted into `prediction_t
 ## ☁️ Deployment
 
 This application is deployed using Streamlit Sharing and is accessible at: [immo-eliza-deployment](https://immo-eliza-deployment-v2-mm5chdvgf6maztxrhttbxu.streamlit.app/)
+
 ### If you want to contribute to the project, follow these steps:
 
 1. Fork the repository and clone it to your local machine.
