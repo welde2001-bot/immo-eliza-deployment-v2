@@ -19,7 +19,7 @@ BACKEND_URL = "https://immo-eliza-deployment-vnhp.onrender.com"  # fixed backend
 
 APP_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = APP_DIR / "assets"
-SIDEBAR_HEADER_IMAGE_PATH = ASSETS_DIR / "immo-eliza.png"
+SIDEBAR_HEADER_IMAGE_PATH = ASSETS_DIR / "Immo-eliza.png"
 
 # -------------------------
 # Input options (keep in sync with backend schemas)
