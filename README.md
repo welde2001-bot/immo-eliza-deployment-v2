@@ -1,11 +1,25 @@
+<p align="left">
+
+  <a href="https://www.python.org/" target="_blank" rel="noopener 
+  noreferrer">
+    <img src="streamlit_app/assets/python.png" width="32%" 
+    alt="Python" />
+  </a>
+  <a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener noreferrer">
+    <img src="streamlit_app/assets/fastapi.png" width="32%" alt="FastAPI" />
+  </a>
+  <a href="https://streamlit.io/" target="_blank" rel="noopener noreferrer">
+    <img src="streamlit_app/assets/streamlit.png" width="32%" height=30 alt="Streamlit" />
+  </a>
+</p>
+
+
 # Real Estate Price Prediction (Belgium) — Immo Eliza
 
 A fast, reproducible ML inference service to estimate Belgian property prices using a trained model and reference data (postal code ↔ province). This repository contains:
 
 - **FastAPI backend** exposing a clean `/predict` endpoint for inference
 - **Streamlit UI** for interactive predictions (dropdowns + input validation)
-- **Docker + Docker Compose** to run both services consistently
-
 ---
 
 ## 📑 Table of contents
@@ -14,7 +28,6 @@ A fast, reproducible ML inference service to estimate Belgian property prices us
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Run (local)](#run-local)
-- [Run with Docker (production-like)](#run-docker)
 - [Streamlit UI](#streamlit-ui)
 - [How it works](#how-it-works)
 - [Deployment](#deployment)
@@ -57,13 +70,10 @@ immo-eliza-deployment-v2/
 │  ├─ requirements.txt
 │  └─ assets/
 │     └─ immo-eliza.png      # sidebar image shown in the UI
-│     └─ ui.png             # # screenshoot of streamlit UI
-├─ docker/
-│  ├─ backend.Dockerfile
-│  └─ streamlit.Dockerfile
-│
-├─ docker-compose.yml
-├─ .dockerignore
+│     └─ ui.png             #  screenshoot of streamlit UI
+│     └─ fastapi.png
+│     └─ streamlit.png
+│     └─ python.png
 ├─ .gitignore
 └─ README.md
 ```
@@ -83,17 +93,14 @@ This repository uses **separate virtual environments** per component:
 - **Streamlit UI:** Python **3.13**  
   Venv path: `streamlit_app\.venv\`
 
-> Note: Python 3.14 is still new for some ML dependencies. If you hit install issues on the backend, consider switching the backend to Python 3.13 for broader wheel support.
+> Note: > Python 3.14 may not have prebuilt wheels for some ML dependencies yet. If installation fails, use Python 3.13 for the backend for better compatibility.
 
-Docker
-
-For Docker Compose usage, install Docker Desktop (or Docker Engine) and ensure docker compose works on your machine.
 
 <a id="installation"></a>
 
 ## 🛠️ Installation
 
-
+Install the required dependencies from `requirements.txt`:
 
 ### Backend (Python 3.14)
 
@@ -124,10 +131,13 @@ pip install -r requirements.txt
 
 Open a terminal:
 
+Open a terminal:
+
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
 uvicorn app.app:app --reload --host 0.0.0.0 --port 8000
+
 ```
 
 ### 2) Run the Streamlit UI
@@ -139,88 +149,6 @@ cd streamlit_app
 .\.venv\Scripts\Activate.ps1
 streamlit run app.py --server.port 8501
 ```
-
-**Backend**
-
-```powershell
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2\backend
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -r requirements.txt
-``` 
-
-**Streamlit**
-
-```powershell
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2\streamlit_app
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -r requirements.txt
-``` 
-
-<a id="run-docker"></a>
-
-## 🐳 Run with Docker (production-like)
-
-
-Requires Docker Desktop.
-No local venv required.
-
-**Usage**
-
-1) Run backend (FastAPI)
-
-```powershell 
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2\backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.app:app --reload --port 8000
-``` 
-
-Health check:
-
-```powershell
-http://localhost:8000/ → alive
-
-``` 
-
-2) Run Streamlit UI
-
-```powershell
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2\streamlit_app
-.\.venv\Scripts\Activate.ps1
-streamlit run app.py --server.port 8501
-
-```
-
-Open:
-
-http://localhost:8501
-
-In the sidebar set:
-
-API base URL: http://localhost:8000 (do not predict)
-
-3) Run both with Docker Compose
-
-```powershell
-cd C:\Users\welde\Desktop\immo-eliza-deployment-v2
-docker compose up --build
-```
-
-**Open**:
-
-Streamlit: http://localhost:8501
-
-Backend: http://localhost:8000
-
-**Stop**:
-
-```powershell
-docker compose down
-```
-
 
 <a id="streamlit-ui"></a>
 
@@ -274,7 +202,17 @@ The pipeline produces a numeric prediction which is formatted into `prediction_t
 
 ## ☁️ Deployment
 
-This application is deployed using Streamlit Sharing and is accessible at: https://immo-eliza-deployment-v2-mm5chdvgf6maztxrhttbxu.streamlit.app/
+This application is deployed using Streamlit Sharing and is accessible at: [immo-eliza-deployment](https://immo-eliza-deployment-v2-mm5chdvgf6maztxrhttbxu.streamlit.app/)
+
+### If you want to contribute to the project, follow these steps:
+
+1. Fork the repository and clone it to your local machine.
+2. Create a new branch for your feature or bug fix.
+3. Implement your changes.
+4. Run tests to make sure everything works as expected.
+5. Commit and push your changes.
+6. Submit a pull request.
+
 
 <a id="contributors"></a>
 
