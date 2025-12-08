@@ -1,30 +1,39 @@
 # streamlit_app/app.py
 # Immo Eliza Price Predictor — Streamlit UI (FastAPI backend)
+#
+# Purpose
+# -------
+# This Streamlit app collects property features, sends them to a FastAPI backend (POST /predict),
+# and displays a price estimate. The UI uses a form so inputs are only "committed" when the user
+# presses Predict (submit semantics).
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import requests
 import streamlit as st
 
-# -------------------------
+# =============================================================================
 # App configuration
-# -------------------------
-# Keep these values in one place so it is easy to change the version or backend later.
+# =============================================================================
+
 APP_VERSION = "0.1.0"
-BACKEND_URL = "https://immo-eliza-deployment-vnhp.onrender.com"  # fixed backend (hidden from UI)
+BACKEND_URL = "https://immo-eliza-deployment-vnhp.onrender.com"  # backend base URL (not shown in UI)
+
+CURRENT_YEAR = date.today().year  # dynamic, avoids hardcoding 2025+
 
 APP_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = APP_DIR / "assets"
 SIDEBAR_HEADER_IMAGE_PATH = ASSETS_DIR / "Immo-eliza.png"
 
-# -------------------------
-# Input options (keep in sync with backend schemas)
-# -------------------------
-# These lists populate dropdowns in the UI. The backend applies final validation/normalization.
+# =============================================================================
+# UI options (keep aligned with backend schemas)
+# =============================================================================
+
 PROPERTY_TYPE_OPTIONS = [
     "",
     "Apartment", "Residence", "Villa", "Ground", "Penthouse", "Duplex", "Mixed",
@@ -44,15 +53,15 @@ PROVINCE_OPTIONS = [
 ]
 AMENITY_OPTIONS = ["", "yes", "no", "unknown"]
 
-# -------------------------
-# Session defaults (UI state)
-# -------------------------
-# DEFAULTS = input state shown in the form.
-# META_DEFAULTS = last prediction output / last error for rendering the result panel.
+# =============================================================================
+# Session defaults (input state + last output)
+# =============================================================================
+# DEFAULTS holds form values. META_DEFAULTS holds last result/error to render the right panel.
+
 DEFAULTS: Dict[str, Any] = {
     "build_year": 2000,
-    "living_area": 120,  # int in UI; converted to float for API payload
-    "number_rooms": 3,
+    "living_area": 100,
+    "number_rooms": 1,
     "facades": 2,
     "postal_code": "",
     "province": "",
@@ -69,16 +78,22 @@ META_DEFAULTS: Dict[str, Any] = {
     "last_local_note": None,
 }
 
-# -------------------------
-# Formatting and parsing helpers
-# -------------------------
+# =============================================================================
+# Helpers: normalization, formatting, error parsing
+# =============================================================================
+
 def _normalize_base_url(url: str) -> str:
-    """Trim whitespace and trailing slashes to avoid double-slash URLs."""
+    """Trim whitespace and trailing slashes to prevent malformed URLs."""
     return (url or "").strip().rstrip("/")
 
 
 def _digits4_or_none(raw: Any) -> Optional[str]:
-    """Extract a 4-digit postal code from user input (digits only), or return None."""
+    """
+    Extract a 4-digit postal code from user input.
+    Returns:
+      - 'dddd' if exactly 4 digits found
+      - None otherwise
+    """
     s = "" if raw is None else str(raw).strip()
     if not s:
         return None
@@ -87,16 +102,13 @@ def _digits4_or_none(raw: Any) -> Optional[str]:
 
 
 def _extract_prediction(result: Dict[str, Any]) -> Optional[str]:
-    """
-    Read the prediction field from the backend response.
-    The primary key is prediction_text; additional keys are accepted for resilience.
-    """
+    """Read prediction field from backend response (supports multiple key names)."""
     pred = result.get("prediction_text") or result.get("prediction") or result.get("pred_text")
     return None if pred is None else str(pred)
 
 
 def _format_price_eur(pred: Optional[str]) -> str:
-    """Normalize the display format to: €123,456.78 (always uses thousands separators)."""
+    """Format to €123,456.78 when numeric; otherwise return a safe string."""
     if not pred:
         return "N/A"
     s = str(pred).strip()
@@ -112,7 +124,7 @@ def _format_price_eur(pred: Optional[str]) -> str:
 
 
 def _compact_fastapi_422(detail: Any) -> str:
-    """Turn a FastAPI/Pydantic 422 'detail' payload into a short readable string."""
+    """Convert FastAPI/Pydantic 422 detail payload into a short readable message."""
     if isinstance(detail, str):
         return detail
     if isinstance(detail, dict):
@@ -138,8 +150,9 @@ def _compact_fastapi_422(detail: Any) -> str:
 def _parse_backend_error_json(data: Any) -> str:
     """
     Extract an error message from JSON responses.
-    - Your backend returns: {"error": "..."}
-    - FastAPI validation errors return: {"detail": [...]}
+    Supported formats:
+      - {"error": "..."}   (custom backend)
+      - {"detail": [...]}  (FastAPI validation)
     """
     if isinstance(data, dict):
         err = data.get("error")
@@ -150,12 +163,13 @@ def _parse_backend_error_json(data: Any) -> str:
         return str(data)
     return str(data)
 
-# -------------------------
-# API badge status (only used for the bottom-left indicator)
-# -------------------------
+# =============================================================================
+# API status badge 
+# =============================================================================
+
 @dataclass(frozen=True)
 class ApiStatus:
-    """Simple availability state for UI badge rendering."""
+    """Simple availability state for the UI badge."""
     state: str  # "online" | "warming" | "offline"
 
 
@@ -163,7 +177,7 @@ class ApiStatus:
 def _api_status(api_base_url: str) -> ApiStatus:
     """
     Lightweight reachability probe.
-    Tries multiple endpoints to work with different deployments.
+    Tries a small set of endpoints to handle different deployments.
     """
     base = _normalize_base_url(api_base_url)
     for path in ["/health", "/live", "/openapi.json", "/docs", "/"]:
@@ -181,7 +195,7 @@ def _api_status(api_base_url: str) -> ApiStatus:
 
 
 def _render_bottom_left_api_indicator(status: ApiStatus) -> None:
-    """Render the single API status badge in the bottom-left corner."""
+    """Render a fixed-position API status badge (bottom-left)."""
     if status.state == "online":
         label, bg, border = "API : → alive", "#0E5A2A", "#0B4A22"
     elif status.state == "warming":
@@ -212,18 +226,21 @@ def _render_bottom_left_api_indicator(status: ApiStatus) -> None:
         unsafe_allow_html=True,
     )
 
-# -------------------------
-# Backend request (keeps backend error messages intact)
-# -------------------------
+# =============================================================================
+# Backend call (preserves backend error messages)
+# =============================================================================
+
 def _call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Call POST /predict and return JSON on success.
+    Call POST /predict.
 
-    On failures:
-    - Raises RuntimeError with:
-      * a user-facing line (User: ...)
-      * optionally a technical line (Debug: ...)
-    The UI displays user-friendly content and can optionally show debug details.
+    Returns:
+      - JSON dict on success
+
+    Raises:
+      - RuntimeError with:
+          "User: ..."  (message safe to display)
+          "Debug: ..." (technical details)
     """
     base = _normalize_base_url(api_base_url)
     url = base + "/predict"
@@ -243,7 +260,7 @@ def _call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
     content_type = (resp.headers.get("content-type") or "").lower()
 
-    # If the backend reported an error, keep the backend message as the main user message.
+    # Handle HTTP errors and keep backend messages intact where possible.
     if resp.status_code >= 400:
         detail_for_user: Optional[str] = None
         debug_bits = [f"HTTP {resp.status_code}"]
@@ -267,7 +284,7 @@ def _call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
         raise RuntimeError(f"User: {user_msg}\nDebug: {', '.join(debug_bits)}")
 
-    # Defensive check: a healthy backend should return JSON.
+    # Defensive: success responses should be JSON.
     if "application/json" not in content_type:
         snippet = (resp.text or "")[:300].replace("\n", " ").strip()
         raise RuntimeError(
@@ -285,7 +302,7 @@ def _call_predict(api_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _split_user_debug(err: Exception) -> Tuple[str, str]:
-    """Extract user-friendly vs debug messages from raised errors."""
+    """Split raised errors into user-facing vs technical details."""
     s = str(err)
     user_msg = "The prediction service is currently unavailable. Please try again."
     debug_msg = s
@@ -296,17 +313,17 @@ def _split_user_debug(err: Exception) -> Tuple[str, str]:
         debug_msg = ("Debug:" + parts[1]).strip() if len(parts) > 1 else s
     return user_msg, debug_msg
 
-# -------------------------
-# Payload construction (validate only when user clicks Predict)
-# -------------------------
-def _build_payload_after_click() -> Tuple[Dict[str, Any], Optional[str], Optional[str]]:
-    """
-    Collect form inputs from session_state and build an API payload.
+# =============================================================================
+# Payload construction
+# =============================================================================
 
-    UI policy:
-    - Predict button stays enabled.
-    - We only show a warning if BOTH postal_code and province are missing.
-    - If postal is not 4 digits but province is selected, we ignore postal and proceed.
+def _build_payload_after_submit() -> Tuple[Dict[str, Any], Optional[str], Optional[str]]:
+    """
+    Build the API payload from session_state values committed by form submission.
+
+    Rules:
+      - Require at least: valid 4-digit postal code OR province.
+      - If postal code is present but invalid and province is set -> ignore postal code and proceed.
     """
     pc_raw = st.session_state.get("postal_code", "")
     prov_raw = (st.session_state.get("province") or "").strip()
@@ -314,11 +331,11 @@ def _build_payload_after_click() -> Tuple[Dict[str, Any], Optional[str], Optiona
     pc4 = _digits4_or_none(pc_raw)
     has_province = bool(prov_raw)
 
-    user_error = None
-    local_note = None
+    user_error: Optional[str] = None
+    local_note: Optional[str] = None
 
     if pc4 is None and not has_province:
-        user_error = "Please provide a postal code or select a province."
+        user_error = "Please provide a postal code (4 digits) or select a province."
 
     if pc_raw and pc4 is None and has_province:
         local_note = "Postal code ignored (invalid); using province."
@@ -338,9 +355,10 @@ def _build_payload_after_click() -> Tuple[Dict[str, Any], Optional[str], Optiona
     }
     return payload, user_error, local_note
 
-# -------------------------
-# Session state helpers
-# -------------------------
+# =============================================================================
+# Session state lifecycle
+# =============================================================================
+
 def _init_state() -> None:
     """Initialize session_state keys once per browser session."""
     for k, v in DEFAULTS.items():
@@ -356,65 +374,21 @@ def _reset_state() -> None:
     for k, v in META_DEFAULTS.items():
         st.session_state[k] = v
 
-# -------------------------
-# Floating helper (keeps the latest prediction visible)
-# -------------------------
-def _render_floating_blue_box(latest_price: Optional[str]) -> None:
-    """Render a bottom-right helper box so the result stays visible while editing inputs."""
-    if latest_price:
-        title = f"Latest prediction: <b>{latest_price}</b>"
-        sub = "Adjust the property specs and press Predict to update."
-    else:
-        title = "Fill the property's specs"
-        sub = "Then press Predict to compute a price estimate."
+# =============================================================================
+# Render app
+# =============================================================================
 
-    st.markdown(
-        f"""
-        <style>
-          .blue-box {{
-            position: fixed;
-            right: 18px;
-            bottom: 18px;
-            z-index: 1002;
-            pointer-events: none;
-            background: linear-gradient(135deg, rgba(37,99,235,0.95), rgba(29,78,216,0.95));
-            color: rgba(255,255,255,0.96);
-            border: 1px solid rgba(255,255,255,0.18);
-            border-radius: 16px;
-            padding: 12px 14px;
-            min-width: 280px;
-            max-width: 420px;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.28);
-          }}
-          .blue-box .big {{ font-size: 13px; font-weight: 760; }}
-          .blue-box .small {{ font-size: 12px; opacity: 0.88; margin-top: 5px; line-height: 1.25; }}
-          @media (max-width: 900px) {{
-            .blue-box {{ left: 18px; right: 18px; max-width: none; }}
-          }}
-        </style>
-        <div class="blue-box">
-          <div class="big">{title}</div>
-          <div class="small">{sub}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-# =========================
-# App rendering
-# =========================
 st.set_page_config(page_title="Immo Eliza Price Predictor", page_icon="🏠", layout="wide")
 _init_state()
 
-# Render the single API badge once at startup reruns.
+# Fixed API badge (cached probe).
 _render_bottom_left_api_indicator(_api_status(BACKEND_URL))
 
-# Global styling for layout and components.
-# This is injected as CSS because Streamlit does not expose these layout controls directly.
+# Global styling (CSS injection for layout control).
 st.markdown(
     """
     <style>
-      .block-container { padding-top: 0.9rem; padding-bottom: 7.0rem; max-width: 1120px; }
+      .block-container { padding-top: 0.9rem; padding-bottom: 2.0rem; max-width: 1120px; }
       [data-testid="stAppViewContainer"] {
         background: radial-gradient(1200px 600px at 18% 0%, rgba(59,130,246,0.10), transparent 60%),
                     radial-gradient(900px 500px at 100% 10%, rgba(16,185,129,0.07), transparent 55%);
@@ -451,7 +425,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Sidebar content: branding + short explanation + reset.
+# Sidebar: branding + explanation + reset.
 with st.sidebar:
     if SIDEBAR_HEADER_IMAGE_PATH.exists():
         st.image(str(SIDEBAR_HEADER_IMAGE_PATH), use_container_width=True)
@@ -469,125 +443,137 @@ with st.sidebar:
         _reset_state()
         st.rerun()
 
-# Main header designed to stay compact and readable.
+# Header.
 st.markdown('<h2 class="center-title">🏠 Immo Eliza Price Predictor</h2>', unsafe_allow_html=True)
 st.markdown(
     '<div class="center-sub">Enter the property details, then click Predict to generate a price estimate.</div>',
     unsafe_allow_html=True,
 )
 
-# Main form area: split inputs into a wide left column and a compact right column.
-st.markdown("### 🧾 Property details")
-left, right = st.columns([0.62, 0.38], vertical_alignment="top")
+# =============================================================================
+# Form-based interaction model
+# - Editing widgets does not trigger predictions.
+# - A prediction is made only when the user presses Predict (form submit).
+# =============================================================================
 
-with left:
-    # Required fields block (these are always needed by the model).
+with st.form("predict_form", clear_on_submit=False):
+
+    st.markdown("### 🧾 Property details")
+    left, right = st.columns([0.62, 0.38], vertical_alignment="top")
+
+    # --- Left column: required + location ---
+    with left:
+        with st.container(border=True):
+            st.markdown("**📐 Required details**")
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.number_input("Build year", min_value=1800, max_value=CURRENT_YEAR, step=1, key="build_year")
+            with c2:
+                st.number_input("Living area (m²)", min_value=0, step=5, key="living_area")
+            with c3:
+                st.number_input("Rooms", min_value=0, step=1, key="number_rooms")
+            with c4:
+                st.number_input("Facades", min_value=1, step=1, key="facades")
+
+        with st.container(border=True):
+            st.markdown("**📍 Location**")
+            lc1, lc2 = st.columns([0.9, 1.1])
+            with lc1:
+                st.text_input(
+                    "Postal code",
+                    placeholder="e.g., 9000",
+                    key="postal_code",
+                    max_chars=4,
+                    help="Enter a 4-digit Belgian postal code (digits only).",
+                )
+            with lc2:
+                st.selectbox("Province", options=PROVINCE_OPTIONS, key="province")
+
+            st.caption("Provide either a 4-digit postal code or a province.")
+
+    # --- Right column: optional profile + amenities ---
+    with right:
+        with st.container(border=True):
+            st.markdown("**🏡 Property profile**")
+            st.selectbox("Property type", options=PROPERTY_TYPE_OPTIONS, key="property_type")
+            st.selectbox("State", options=STATE_OPTIONS, key="state")
+
+        with st.container(border=True):
+            st.markdown("**✨ Amenities**")
+            a1, a2, a3 = st.columns(3)
+            with a1:
+                st.selectbox("🌿 Garden", options=AMENITY_OPTIONS, key="garden")
+            with a2:
+                st.selectbox("🪟 Terrace", options=AMENITY_OPTIONS, key="terrace")
+            with a3:
+                st.selectbox("🏊 Pool", options=AMENITY_OPTIONS, key="swimming_pool")
+
+    # --- Prediction: action + result in one panel ---
     with st.container(border=True):
-        st.markdown("**📐 Required details**")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.number_input("Build year", min_value=1800, max_value=2025, step=1, key="build_year")
-        with c2:
-            st.number_input("Living area (m²)", min_value=0, step=5, key="living_area")
-        with c3:
-            st.number_input("Rooms", min_value=0, step=1, key="number_rooms")
-        with c4:
-            st.number_input("Facades", min_value=1, step=1, key="facades")
-
-    # Location is required by policy: at least postal code OR province.
-    with st.container(border=True):
-        st.markdown("**📍 Location**")
-        lc1, lc2 = st.columns([0.9, 1.1])
-        with lc1:
-            st.text_input("Postal code", placeholder="e.g., 9000", key="postal_code")
-        with lc2:
-            st.selectbox("Province", options=PROVINCE_OPTIONS, key="province")
-
-with right:
-    # These fields are optional; the backend can treat unknown values as missing.
-    with st.container(border=True):
-        st.markdown("**🏡 Property profile**")
-        st.selectbox("Property type", options=PROPERTY_TYPE_OPTIONS, key="property_type")
-        st.selectbox("State", options=STATE_OPTIONS, key="state")
-
-    with st.container(border=True):
-        st.markdown("**✨ Amenities**")
-        a1, a2, a3 = st.columns(3)
-        with a1:
-            st.selectbox("🌿 Garden", options=AMENITY_OPTIONS, key="garden")
-        with a2:
-            st.selectbox("🪟 Terrace", options=AMENITY_OPTIONS, key="terrace")
-        with a3:
-            st.selectbox("🏊 Pool", options=AMENITY_OPTIONS, key="swimming_pool")
-
-# Prediction section: result is shown in-place so users do not need to scroll.
-with st.container(border=True):
-    st.markdown("### 🔮 Prediction")
-    st.markdown(
-        '<div class="action-hint">Press Predict to compute the estimate. The result appears here.</div>',
-        unsafe_allow_html=True,
-    )
-
-    action_col, result_col = st.columns([0.28, 0.72], vertical_alignment="top")
-
-    with action_col:
-        if st.button("Predict price", type="primary", use_container_width=True):
-            # Clear previous output so the right panel always reflects the latest attempt.
-            st.session_state["last_result"] = None
-            st.session_state["last_error_user"] = None
-            st.session_state["last_error_debug"] = None
-            st.session_state["last_local_note"] = None
-
-            payload, user_err, local_note = _build_payload_after_click()
-            if user_err:
-                st.session_state["last_error_user"] = user_err
-            else:
-                st.session_state["last_local_note"] = local_note
-                try:
-                    with st.spinner("Calling the model endpoint..."):
-                        st.session_state["last_result"] = _call_predict(BACKEND_URL, payload)
-                except Exception as e:
-                    u, d = _split_user_debug(e)
-                    st.session_state["last_error_user"] = u
-                    st.session_state["last_error_debug"] = d
-
-    with result_col:
-        # Optional local note (UI-side decisions, e.g., ignoring invalid postal code when province is set).
-        if st.session_state.get("last_local_note"):
-            st.caption(st.session_state["last_local_note"])
-
-        # If an error occurred, show the backend message verbatim. Debug details remain optional.
-        if st.session_state.get("last_error_user"):
-            st.error(st.session_state["last_error_user"])
-            if st.session_state.get("last_error_debug"):
-                with st.expander("Technical details", expanded=False):
-                    st.code(st.session_state["last_error_debug"], language="text")
-
-        # On success, show prediction + optional backend warning line.
-        elif st.session_state.get("last_result"):
-            result: Dict[str, Any] = st.session_state["last_result"]
-            price = _format_price_eur(_extract_prediction(result))
-
-            st.success("Prediction complete")
-            st.metric("Predicted price", price)
-
-            warning = result.get("warning")
-            if warning:
-                st.warning(str(warning))
-        else:
-            st.caption("No prediction yet. Click Predict to generate an estimate.")
-
-    # Disclaimer stays near the prediction so users see it at decision time.
-    with st.expander("Disclaimer (read before use)", expanded=False):
-        st.write(
-            "This estimate is indicative and depends on listing quality, data coverage, and market conditions. "
-            "It is not a certified valuation and provides no certification for this price. "
-            "The model was trained on Belgian “for sale” listings collected up to 14 Nov 2025 "
-            "(about 15,000+ properties), so accuracy may drift as the market changes or for unusual properties."
+        st.markdown("### 🔮 Prediction")
+        st.markdown(
+            '<div class="action-hint">Press Predict to compute the estimate. The result appears here.</div>',
+            unsafe_allow_html=True,
         )
 
-# Floating helper box helps users keep track of the last prediction while they edit inputs.
-latest_price = None
-if st.session_state.get("last_result"):
-    latest_price = _format_price_eur(_extract_prediction(st.session_state["last_result"]))
-_render_floating_blue_box(latest_price)
+        action_col, result_col = st.columns([0.28, 0.72], vertical_alignment="top")
+
+        with action_col:
+            submitted = st.form_submit_button("Predict price", type="primary", use_container_width=True)
+
+            if submitted:
+                # Clear previous output so the right panel reflects the latest attempt.
+                st.session_state["last_result"] = None
+                st.session_state["last_error_user"] = None
+                st.session_state["last_error_debug"] = None
+                st.session_state["last_local_note"] = None
+
+                payload, user_err, local_note = _build_payload_after_submit()
+                if user_err:
+                    st.session_state["last_error_user"] = user_err
+                else:
+                    st.session_state["last_local_note"] = local_note
+                    try:
+                        with st.spinner("Calling the model endpoint..."):
+                            st.session_state["last_result"] = _call_predict(BACKEND_URL, payload)
+                    except Exception as e:
+                        u, d = _split_user_debug(e)
+                        st.session_state["last_error_user"] = u
+                        st.session_state["last_error_debug"] = d
+
+        with result_col:
+            # Local note (e.g., invalid postal ignored when province is set).
+            if st.session_state.get("last_local_note"):
+                st.caption(st.session_state["last_local_note"])
+
+            # Error state (user-friendly + optional technical details).
+            if st.session_state.get("last_error_user"):
+                st.error(st.session_state["last_error_user"])
+                if st.session_state.get("last_error_debug"):
+                    with st.expander("Technical details", expanded=False):
+                        st.code(st.session_state["last_error_debug"], language="text")
+
+            # Success state (prediction + optional warning).
+            elif st.session_state.get("last_result"):
+                result: Dict[str, Any] = st.session_state["last_result"]
+                price = _format_price_eur(_extract_prediction(result))
+
+                st.success("Prediction complete")
+                st.metric("Predicted price", price)
+
+                warning = result.get("warning")
+                if warning:
+                    st.warning(str(warning))
+
+            # Empty state.
+            else:
+                st.caption("No prediction yet. Click Predict to generate an estimate.")
+
+        # Disclaimer near the decision point.
+        with st.expander("Disclaimer (read before use)", expanded=False):
+            st.write(
+                "This estimate is indicative and depends on listing quality, data coverage, and market conditions. "
+                "It is not a certified valuation and provides no certification for this price. "
+                "The model was trained on Belgian “for sale” listings collected up to 14 Nov 2025 "
+                "(about 15,000+ properties), so accuracy may drift as the market changes or for unusual properties."
+            )

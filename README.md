@@ -1,25 +1,22 @@
 <p align="left">
-
-  <a href="https://www.python.org/" target="_blank" rel="noopener 
-  noreferrer">
-    <img src="streamlit_app/assets/python.png" width="32%" 
-    alt="Python" />
+  <a href="https://www.python.org/" target="_blank" rel="noopener noreferrer">
+    <img src="streamlit_app/assets/python.png" width="32%" alt="Python" />
   </a>
   <a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener noreferrer">
     <img src="streamlit_app/assets/fastapi.png" width="32%" alt="FastAPI" />
   </a>
   <a href="https://streamlit.io/" target="_blank" rel="noopener noreferrer">
-    <img src="streamlit_app/assets/streamlit.png" width="32%" height=30 alt="Streamlit" />
+    <img src="streamlit_app/assets/streamlit.png" width="32%" alt="Streamlit" />
   </a>
 </p>
 
-
 # Real Estate Price Prediction (Belgium) — Immo Eliza
 
-A fast, reproducible ML inference service to estimate Belgian property prices using a trained model and reference data (postal code ↔ province). This repository contains:
+A reproducible ML inference service to estimate Belgian property prices using a trained model and reference data (postal code ↔ province). This repository contains:
 
-- **FastAPI backend** exposing a clean `/predict` endpoint for inference
-- **Streamlit UI** for interactive predictions (dropdowns + input validation)
+- **FastAPI backend** exposing a `/predict` endpoint for inference + health/readiness endpoints
+- **Streamlit UI** for interactive predictions (dropdowns + validation)
+
 ---
 
 ## 📑 Table of contents
@@ -27,12 +24,12 @@ A fast, reproducible ML inference service to estimate Belgian property prices us
 - [Repository structure](#repository-structure)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Run (local)](#run-local)
+- [Run locally](#run-locally)
 - [Streamlit UI](#streamlit-ui)
+- [API usage](#api-usage)
 - [How it works](#how-it-works)
 - [Deployment](#deployment)
 - [Contributors](#contributors)
-
 
 ---
 
@@ -55,9 +52,9 @@ immo-eliza-deployment-v2/
 ├─ backend/
 │  ├─ app/
 │  │  ├─ __init__.py
-│  │  ├─ app.py          # FastAPI entrypoint + health/readiness
-│  │  ├─ predict.py     # artifact load + preprocess + inference
-│  │  └─ schemas.py    # request/response schemas + constants
+│  │  ├─ app.py          # FastAPI entrypoint + health
+│  │  ├─ predict.py   # artifact load + preprocess
+│  │  └─ schemas.py   # request schema + constants
 │  ├─ artifacts/
 │  │  ├─ pipeline.joblib
 │  │  └─ xgboost_log_model.pkl
@@ -66,41 +63,39 @@ immo-eliza-deployment-v2/
 │  └─ requirements.txt
 │
 ├─ streamlit_app/
-│  ├─ app.py             # Streamlit UI (calls backend /predict)
+│  ├─ app.py      # Streamlit UI (calls backend /predict)
 │  ├─ requirements.txt
 │  └─ assets/
-│     └─ immo-eliza.png      # sidebar image shown in the UI
-│     └─ ui.png             #  screenshoot of streamlit UI
-│     └─ fastapi.png
-│     └─ streamlit.png
+│     ├─ immo-eliza.png  # sidebar image shown in the UI
+│     ├─ ui.png          # screenshot of Streamlit UI
+│     ├─ fastapi.png
+│     ├─ streamlit.png
 │     └─ python.png
 ├─ .gitignore
 └─ README.md
 ```
-
 <a id="requirements"></a>
 
 ## ✅ Requirements
 
-
 ### Python versions (important)
 
-This repository uses **separate virtual environments** per component:
+This repository uses **separate virtual environments** per component.
 
-- **Backend (FastAPI / ML inference):** Python **3.14**  
-  Venv path: `backend\.venv\`
+Practical recommendation: use a Python version with strong ML wheel support for your OS. If you see installation errors for `numpy`, `scikit-learn`, or `xgboost`, switch to a more widely supported Python version for the backend (this is common for ML stacks).
 
-- **Streamlit UI:** Python **3.13**  
-  Venv path: `streamlit_app\.venv\`
+Example layout (Windows):
+- Backend venv: `backend\.venv\`
+- Streamlit venv: `streamlit_app\.venv\`
 
-> Note: > Python 3.14 may not have prebuilt wheels for some ML dependencies yet. If installation fails, use Python 3.13 for the backend for better compatibility.
-
+---
 
 <a id="installation"></a>
 
 ## 🛠️ Installation
 
-Install the required dependencies from `requirements.txt`:
+Install dependencies from each component’s `requirements.txt`.
+
 
 ### Backend (Python 3.14)
 
@@ -176,6 +171,43 @@ Optional fields:
 
 After filling the form press predict price and the predicted price will be displayed according to the property details entered. Press reset button on the left side to reset the form and refill again to predict another property.
 
+<a id="api-usage"></a>
+
+## 🔌 API usage
+### Request
+
+POST /predict accepts JSON:
+```powershell
+{
+  "build_year": 2000,
+  "living_area": 100,
+  "number_rooms": 2,
+  "facades": 2,
+  "postal_code": "9000",
+  "province": null,
+  "property_type": "Residence",
+  "state": "Excellent",
+  "garden": "yes",
+  "terrace": "no",
+  "swimming_pool": "unknown"
+}
+```
+### Response (success)
+
+```json
+{
+  "prediction_text": "€323,456.78",
+  "warning": "postal_code not provided; using province only."
+} 
+
+```
+### Quick test (curl)
+
+```bash
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"build_year":1996,"living_area":120,"number_rooms":3,"facades":2,"postal_code":"9000"}'
+```
 <a id="how-it-works"></a>
 
 ## ⚙️ How it works
@@ -196,7 +228,7 @@ Validation is enforced in `backend/app/schemas.py` and `backend/app/predict.py`:
 
 ### 3) Inference
 
-The pipeline produces a numeric prediction which is formatted into `prediction_text` (EUR string). Non-blocking issues (e.g., missing optional fields) are returned as a single-line `warning` when applicable.
+The pipeline produces a numeric prediction which is formatted into prediction_text (EUR string). Non-blocking issues (e.g., unknown optional fields) return a single-line warning when applicable.
 
 <a id="deployment"></a>
 
@@ -221,4 +253,5 @@ This application is deployed using Streamlit Sharing and is accessible at: [immo
 This project is part of AI & Data Science Bootcamp training at **</becode** and it was done by: 
 
 - Welederufeal Tadege [LinkedIn](https://www.linkedin.com/in/) | [Github](https://github.com/welde2001-bot) 
-under the supervision of AI & data science coach ***Vanessa Rivera Quinones***
+
+Supervision: AI & Data Science coach Vanessa Rivera Quinones ***Vanessa Rivera Quinones***

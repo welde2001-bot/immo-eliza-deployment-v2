@@ -8,9 +8,14 @@ Design goals:
 - Apply lightweight, "hard" validation for core numeric ranges and minimal location rules.
 - Leave deeper domain validation (e.g., postal_code existence, province matching) to predict.py,
   where reference data is available and better error messages can be produced.
+
+Update:
+- build_year is now validated against the *current year* at request time (not hard-coded to 2025).
 """
 
+from datetime import date
 from typing import Optional, Union
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # -------------------------
@@ -44,7 +49,6 @@ ALLOWED_PROVINCES = {
 # -------------------------
 # Normalization maps (user-friendly input -> canonical backend value)
 # -------------------------
-# Property type aliases to canonical categories.
 PROPERTY_TYPE_MAP = {
     "apt": "Apartment",
     "apartment": "Apartment",
@@ -54,7 +58,6 @@ PROPERTY_TYPE_MAP = {
     "house": "Residence",
 }
 
-# Condition/state aliases to canonical categories.
 STATE_MAP = {
     "new": "New",
     "normal": "Normal",
@@ -115,10 +118,11 @@ class PredictRequest(BaseModel):
     - Categorical fields are optional and are normalized/validated more deeply in predict.py.
     - Location: at least one of postal_code or province must be provided.
       A basic 4-digit postal_code format check is handled here; existence checks happen in predict.py.
+    - build_year: must not be in the future (validated against current year at request time).
     """
 
-    # Required year with bounded range
-    build_year: int = Field(..., ge=1800, le=2025, examples=[1996])
+    # Required year: lower-bounded here; "not in future" enforced via validator below.
+    build_year: int = Field(..., ge=1800, examples=[1996])
 
     # Mandatory numerics used by the model
     living_area: float = Field(..., gt=0, le=500, examples=[120])
@@ -156,6 +160,18 @@ class PredictRequest(BaseModel):
             return None
         s = str(v).strip()
         return None if s == "" else s
+
+    @field_validator("build_year")
+    @classmethod
+    def build_year_not_in_future(cls, v: int) -> int:
+        """
+        Enforce build_year <= current year at validation time.
+        This avoids hardcoding a fixed upper bound (e.g., 2025) that would become stale.
+        """
+        current_year = date.today().year
+        if v > current_year:
+            raise ValueError(f"build_year cannot be in the future (max {current_year}).")
+        return v
 
     @model_validator(mode="after")
     def require_location(self):
